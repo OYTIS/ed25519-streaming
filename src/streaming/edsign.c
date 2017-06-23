@@ -63,34 +63,62 @@ void edsign_sec_to_pub(uint8_t *pub, const uint8_t *secret)
 	sm_pack(pub, expanded);
 }
 
-static void hash_with_prefix(uint8_t *out_fp,
-			     uint8_t *init_block, int prefix_size,
-			     const uint8_t *message, size_t len)
+static void hash_message_prefix_init(struct sha512_state *s, uint8_t *block,
+				     int prefix_size, const uint8_t *m,
+				     size_t len)
 {
-	struct sha512_state s;
+	sha512_init(s);
 
-	sha512_init(&s);
-
+	memcpy(block + prefix_size, m, len);
 	if (len < SHA512_BLOCK_SIZE - prefix_size) {
-		memcpy(init_block + prefix_size, message, len);
-		sha512_final(&s, init_block, len + prefix_size);
+		sha512_final(s, block, len + prefix_size);
 	} else {
-		size_t i;
-
-		memcpy(init_block + prefix_size, message,
-		       SHA512_BLOCK_SIZE - prefix_size);
-		sha512_block(&s, init_block);
-
-		for (i = SHA512_BLOCK_SIZE - prefix_size;
-		     i + SHA512_BLOCK_SIZE <= len;
-		     i += SHA512_BLOCK_SIZE)
-			sha512_block(&s, message + i);
-
-		sha512_final(&s, message + i, len + prefix_size);
+		sha512_block(s, block);
 	}
+}
 
-	sha512_get(&s, init_block, 0, SHA512_HASH_SIZE);
-	fprime_from_bytes(out_fp, init_block, SHA512_HASH_SIZE, ed25519_order);
+static void hash_message_init(struct sha512_state *s, const uint8_t *r,
+			      const uint8_t *a, const uint8_t *m, size_t len)
+{
+	uint8_t block[SHA512_BLOCK_SIZE];
+
+
+	memcpy(block, r, 32);
+	memcpy(block + 32, a, 32);
+	hash_message_prefix_init(s, block, 64, m, len);
+}
+
+static void hash_message_block(struct sha512_state *s, const uint8_t *m)
+{
+	sha512_block(s, m);
+}
+
+static void hash_message_final(struct sha512_state *s, const uint8_t *m, size_t total_len) {
+	sha512_final(s, m, total_len);
+}
+
+static void hash_message_finalize(struct sha512_state *s, uint8_t* z)
+{
+	uint8_t hash[SHA512_HASH_SIZE];
+
+	sha512_get(s, hash, 0, SHA512_HASH_SIZE);
+	fprime_from_bytes(z, hash, SHA512_HASH_SIZE, ed25519_order);
+}
+
+static void hash_with_prefix(uint8_t *out_fp, uint8_t *init_block, int prefix_size,
+			     const uint8_t *message, size_t len) {
+	struct sha512_state s;
+	size_t i;
+
+	if(len <= SHA512_BLOCK_SIZE - prefix_size) {
+		hash_message_prefix_init(&s, init_block, prefix_size, message, len);
+		hash_message_finalize(&s, out_fp);
+	} else {
+		for(i = SHA512_BLOCK_SIZE; i < len - SHA512_BLOCK_SIZE; i += SHA512_BLOCK_SIZE)
+			hash_message_block(&s, message+i);
+		hash_message_final(&s, message+i, len+32);
+		hash_message_finalize(&s, out_fp);
+	}
 }
 
 static void generate_k(uint8_t *k, const uint8_t *kgen_key,
@@ -100,49 +128,6 @@ static void generate_k(uint8_t *k, const uint8_t *kgen_key,
 
 	memcpy(block, kgen_key, 32);
 	hash_with_prefix(k, block, 32, message, len);
-}
-
-static void hash_message_init(struct sha512_state *s, const uint8_t *r,
-			      const uint8_t *a, const uint8_t *m, size_t len)
-{
-	uint8_t block[SHA512_BLOCK_SIZE];
-
-	sha512_init(s);
-
-	memcpy(block, r, 32);
-	memcpy(block + 32, a, 32);
-	memcpy(block + 64, m, len);
-	if (len < 64) {
-		sha512_final(s, block, len + 64);
-	} else {
-		sha512_block(s, block);
-	}
-}
-
-static void hash_message_block(struct sha512_state *s, const uint8_t *m)
-{
-	sha512_block(s, m);
-}
-
-static void hash_message_final(struct sha512_state *s, const uint8_t *m, size_t total_len) {
-	sha512_final(s, m, total_len + 64);
-}
-static void hash_message_finalize(struct sha512_state *s, uint8_t* z)
-{
-	uint8_t hash[SHA512_HASH_SIZE];
-
-	sha512_get(s, hash, 0, SHA512_HASH_SIZE);
-	fprime_from_bytes(z, hash, SHA512_HASH_SIZE, ed25519_order);
-}
-
-static void hash_message(uint8_t *z, const uint8_t *r, const uint8_t *a,
-			 const uint8_t *m, size_t len)
-{
-	uint8_t block[SHA512_BLOCK_SIZE];
-
-	memcpy(block, r, 32);
-	memcpy(block + 32, a, 32);
-	hash_with_prefix(z, block, 64, m, len);
 }
 
 void edsign_sign(uint8_t *signature, const uint8_t *pub,
@@ -155,6 +140,8 @@ void edsign_sign(uint8_t *signature, const uint8_t *pub,
 	uint8_t k[FPRIME_SIZE];
 	uint8_t z[FPRIME_SIZE];
 
+	uint8_t hash_block[SHA512_BLOCK_SIZE];
+
 	expand_key(expanded, secret);
 
 	/* Generate k and R = kB */
@@ -162,7 +149,9 @@ void edsign_sign(uint8_t *signature, const uint8_t *pub,
 	sm_pack(signature, k);
 
 	/* Compute z = H(R, A, M) */
-	hash_message(z, signature, pub, message, len);
+	memcpy(hash_block, signature, 32);
+	memcpy(hash_block+32, pub, 32);
+	hash_with_prefix(z, hash_block, 64, message, len);
 
 	/* Obtain e */
 	fprime_from_bytes(e, expanded, 32, ed25519_order);
@@ -217,7 +206,7 @@ void edsign_verify_block(struct sha512_state* s, const uint8_t *message)
 uint8_t edsign_verify_final(struct sha512_state* s, const uint8_t *signature,
 		            const uint8_t *pub, const uint8_t *message, size_t total_len)
 {
-	hash_message_final(s, message, total_len); 
+	hash_message_final(s, message, total_len+64); 
 	return edsign_verify_finalize(s, signature, pub, message);
 }
 

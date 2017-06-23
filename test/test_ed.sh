@@ -9,11 +9,11 @@ CODE=0
 case $1 in
 "verify-reference"*)
 	head -c $2 /dev/urandom > ${TMP}/data
-	PAIR=$(genpair)
+	PAIR=$(./genpair)
 	PRIVATE=$(echo ${PAIR} | cut -d : -f1)
 	PUBLIC=$(echo ${PAIR} | cut -d : -f2)
-	SIGNATURE=$(sign_reference ${PUBLIC} ${PRIVATE} ${TMP}/data)
-	VALID=$(verify_reference ${PUBLIC} ${SIGNATURE} ${TMP}/data)
+	SIGNATURE=$(./sign_reference ${PUBLIC} ${PRIVATE} ${TMP}/data)
+	VALID=$(./verify_reference ${PUBLIC} ${SIGNATURE} ${TMP}/data)
 	if [ ${VALID} = "Valid" ]; then
 		echo "Signature is valid"
 	else
@@ -23,11 +23,11 @@ case $1 in
 ;;
 "verify-streaming"*)
 	head -c $2 /dev/urandom > ${TMP}/data
-	PAIR=$(genpair)
+	PAIR=$(./genpair)
 	PRIVATE=$(echo ${PAIR} | cut -d : -f1)
 	PUBLIC=$(echo ${PAIR} | cut -d : -f2)
-	SIGNATURE=$(sign_streaming ${PUBLIC} ${PRIVATE} ${TMP}/data)
-	VALID=$(verify_reference ${PUBLIC} ${SIGNATURE} ${TMP}/data)
+	SIGNATURE=$(./sign_reference ${PUBLIC} ${PRIVATE} ${TMP}/data)
+	VALID=$(./verify_streaming ${PUBLIC} ${SIGNATURE} ${TMP}/data)
 	if [ ${VALID} = "Valid" ]; then
 		echo "Signature is valid"
 	else
@@ -38,12 +38,12 @@ case $1 in
 ;;
 "sign"*)
 	head -c $2 /dev/urandom > ${TMP}/data
-	PAIR=$(genpair)
+	PAIR=$(./genpair)
 	PRIVATE=$(echo ${PAIR} | cut -d : -f1)
 	PUBLIC=$(echo ${PAIR} | cut -d : -f2)
-	SIGNATURE_REFERENCE=$(sign_reference ${PUBLIC} ${PRIVATE} ${TMP}/data)
-	SIGNATURE_STREAMING=$(sign_streaming ${PUBLIC} ${PRIVATE} ${TMP}/data)
-	if [ ${SIGNATURES_REFERENCE} = ${SIGNATURES_STREAMING} ]; then
+	SIGNATURE_REFERENCE=$(./sign_reference ${PUBLIC} ${PRIVATE} ${TMP}/data)
+	SIGNATURE_STREAMING=$(./sign_streaming ${PUBLIC} ${PRIVATE} ${TMP}/data)
+	if [ "${SIGNATURE_REFERENCE}" = "${SIGNATURE_STREAMING}" ]; then
 		echo "Signatures match"
 	else
 		echo "Signatures don't match"
