@@ -114,9 +114,10 @@ static void hash_with_prefix(uint8_t *out_fp, uint8_t *init_block, int prefix_si
 		hash_message_prefix_init(&s, init_block, prefix_size, message, len);
 		hash_message_finalize(&s, out_fp);
 	} else {
-		for(i = SHA512_BLOCK_SIZE; i < len - SHA512_BLOCK_SIZE; i += SHA512_BLOCK_SIZE)
+		hash_message_prefix_init(&s, init_block, prefix_size, message, SHA512_BLOCK_SIZE - prefix_size);
+		for(i = SHA512_BLOCK_SIZE - prefix_size; i < len - SHA512_BLOCK_SIZE; i += SHA512_BLOCK_SIZE)
 			hash_message_block(&s, message+i);
-		hash_message_final(&s, message+i, len+32);
+		hash_message_final(&s, message+i, len+prefix_size);
 		hash_message_finalize(&s, out_fp);
 	}
 }
